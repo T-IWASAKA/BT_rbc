@@ -83,6 +83,25 @@ class Smear_tiff():
 
         return isolated_centroids, isolated_areasize
     
+    def get_rbcimage(self, isolated_centroids, isolated_areasize, loc=(17010, 45700)):
+        rbc_lst = []
+        ap = rbc_lst.append
+        for rbc_loc, areasize in zip(isolated_centroids, isolated_areasize):
+            radius = np.sqrt(areasize / np.pi)
+            new_loc = (int(loc[0]+rbc_loc[0]-radius), int(loc[1]+rbc_loc[1]-radius))
+            try:
+                rbc_area = self.OS.read_region(location=new_loc, level=0, size=(int(1.03*radius*2),int(1.03*radius*2))).convert("RGB")
+            except:
+                continue
+            # ここで画像を一括で変換するため、サイズ感は失われる
+            image_transform = self.transform(rbc_area) #resize
+            image_np = np.array(image_transform)[:,:,:3]
+            del rbc_area
+            del image_transform
+            ap(image_np)
+        
+        return rbc_lst
+    
     def get_background(self, patch_size=1024, loc=(17010, 45700), rbc_size=60, bg_p=0.01):
         # 全体のバイナリイメージ
         wsi_test = self.OS.read_region(location=loc, level=0, size=(patch_size,patch_size)).convert("RGB")
@@ -102,37 +121,3 @@ class Smear_tiff():
                     ap(image_array[x:x+rbc_size, y:y+rbc_size])
 
         return background_lst
-
-    def get_rbcimage(self, isolated_centroids, isolated_areasize, loc=(17010, 45700)):
-        rbc_lst = []
-        ap = rbc_lst.append
-        for rbc_loc, areasize in zip(isolated_centroids, isolated_areasize):
-            radius = np.sqrt(areasize / np.pi)
-            new_loc = (int(loc[0]+rbc_loc[0]-radius), int(loc[1]+rbc_loc[1]-radius))
-            try:
-                rbc_area = self.OS.read_region(location=new_loc, level=0, size=(int(1.03*radius*2),int(1.03*radius*2))).convert("RGB")
-            except:
-                continue
-            # ここで画像を一括で変換するため、サイズ感は失われる
-            image_transform = self.transform(rbc_area) #resize
-            image_np = np.array(image_transform)[:,:,:3]
-            del rbc_area
-            del image_transform
-            ap(image_np)
-        
-        return rbc_lst
-
-class SmearDataset_RBC(Dataset):
-    def __init__(
-            self,
-            image_lst
-        ):
-        self.image_lst = image_lst
-        
-    def __len__(self):
-        return len(self.image_lst)
-    
-    def __getitem__(self, idx):
-        image_np = self.image_lst[idx]
-
-        return image_np, idx # とりあえずidxをラベルとして返す
