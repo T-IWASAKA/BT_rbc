@@ -18,7 +18,8 @@ from tqdm.auto import tqdm
 #from .src.models import *
 from .src.models.vit import VitForClassification
 from .src.trainer import Trainer
-from .src.data_handler import prep_smeardata, SSLTransform, prep_smeardataset
+from .src.data_handler import  prep_smeardata_bt, prep_validdataset_lst, get_clstoken, get_dr_feature
+from .image_aug import SSLTransform
 from .src.barlow import BarlowTwins
 
 from transformers import get_linear_schedule_with_warmup
@@ -26,8 +27,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, SequentialLR
 
 import torch_optimizer as optim_ext #250424追加
 
-class IhBT:
-    """ IhVitをモジュールとして使うためのクラス """
+class BTRBC:
     def __init__(
             self, config_path: str
             ):
@@ -53,33 +53,55 @@ class IhBT:
         self.model.load_state_dict(torch.load(model_path))
 
 
-    def prep_smeardata(
-            self, exp_name: str=None, input_path: str=None, input_path2: str=None,
+    def prep_smeardata_bt(
+            self, exp_name: str=None, input_path: str=None,
+            num_rbc=2000, show_imagedata=True,
             transform: Tuple[transforms.Compose, transforms.Compose]=(None, None),
+            num_workers=2, pin_memory=True,
+            dataset_save=None
             ):
         """ dataの読み込み """
         if exp_name is None:
             exp_name = "exp"
         self.config["exp_name"] = exp_name
-        self.config["smear"] = True
         self.input_path = input_path
         ssltf = SSLTransform(crop_size=self.config["crop_size"])
-        train_loader, test_loader, classes = prep_smeardata(
-            image_path=(input_path, input_path2), 
+        train_loader, test_loader, classes = prep_smeardata_bt(
+            image_path=input_path, num_rbc=num_rbc, show_imagedata=show_imagedata,
             batch_size=self.config["batch_size"], 
-            transform=transform, 
+            transform=transform,
             ssl_transform = ssltf,
-            shuffle=(True, False),
+            shuffle=(True, False), 
+            num_workers=num_workers, pin_memory=pin_memory, 
+            dataset_save=dataset_save
             )
         return train_loader, test_loader, classes   
+    
+    
+    def prep_smeardata_ds(
+            self, image_path,
+            num_image=2000, splitn=5, ditect_type="rbc",
+            show_imagedata=True,
+            dataset_save=None
+            ):
+        if os.path.exists(dataset_save+'ds_dataset_lst.pickle'): #
+            with open(dataset_save+'ds_dataset_lst.pickle', 'rb') as f:
+                dataset_lst = pickle.load(f)
+        else:
+            dataset_lst = prep_validdataset_lst(image_path, num_image=num_image, splitn=splitn, ditect_type=ditect_type, show_imagedata=show_imagedata)
+            with open(dataset_save+'ds_dataset_lst.pickle', 'wb') as f:
+                pickle.dump(dataset_lst, f)
+
+        return dataset_lst 
 
 
-    def fit(self, train_loader, test_loader, classes, btconfig={}, warmup=True, scheduler_free=False):
+    def fit(self, train_loader, test_loader, classes, btconfig={}, warmup=True):
         """ training """
         # モデル等の準備 (Classの有無でBTとViTを切り替え)
+        self.latent_id = btconfig["latent_id"]
         if len(btconfig) != 0:
             self.backbone = VitForClassification(self.config)
-            self.model = BarlowTwins(self.backbone, btconfig["latent_id"], btconfig["projection_sizes"], btconfig["lambd"], scale_factor=btconfig["scale_factor"])
+            self.model = BarlowTwins(self.backbone, self.latent_id, btconfig["projection_sizes"], btconfig["lambd"], scale_factor=btconfig["scale_factor"])
         else:
             self.model = VitForClassification(self.config)
 
@@ -128,13 +150,7 @@ class IhBT:
             print(f"Accuracy: {accuracy} // Average Loss: {avg_loss}")
 
 
-    def prep_dataset(
-            self, exp_name: str=None, input_path: str=None,
-            transform: Tuple[transforms.Compose, transforms.Compose]=(None, None),
-            ):
-        """ dataの読み込み """
-        self.input_path = input_path
-        ssltf = SSLTransform(crop_size=self.config["crop_size"])
-        train_dataset, test_dataset = prep_smeardataset(self.input_path, ssl_transform=ssltf)
-
-        return train_dataset, test_dataset 
+    def model_vaild(self, model, dataset_lst, f_type="mean+max"):
+        sorted_features = get_clstoken(dataset_lst, model, self.config["device"], f_type=f_type, latent_id=self.latent_id, batch_size=64)
+        pca_feature, sample_ind = get_dr_feature(sorted_features)
+        return  pca_feature, sample_ind
