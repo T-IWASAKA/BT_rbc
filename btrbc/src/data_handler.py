@@ -8,8 +8,25 @@ data handler
 """
 
 ## import ##
-from .RBC_loader import Smear_tiff
-from .image_aug import SSLTransform
+import random
+import pickle
+import itertools
+from collections import deque
+from typing import Tuple
+import os
+import sys
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from PIL import Image
+from tqdm.notebook import tqdm
+import torch
+import torch.utils.data as data
+import torchvision.transforms as transforms
+from sklearn.decomposition import PCA
+
+from .RBC_loader import Smear_tiff, show_get_img
 
 
 class SmearDataset_RBC(torch.utils.data.Dataset):
@@ -61,7 +78,7 @@ class Dataset_SSL(torch.utils.data.Dataset):
         return y1, y2
     
 
-class Dataset_toViT(Dataset):
+class Dataset_toViT(torch.utils.data.Dataset):
     def __init__(self, mydataset):
         self.input = [mydataset[i][0] for i in range(len(mydataset))]
         self.datanum = len(self.input)
@@ -359,8 +376,8 @@ def prep_smeardata_bt(
 
     # dataset and dataloader preparation
     if ssl_transform is not None:
-        if os.path.exists(dataset_save+'train_set_bt.pickle'): #
-            with open(dataset_save+'train_set_bt.pickle', 'rb') as f:
+        if os.path.exists(dataset_save+'/train_set_bt.pickle'): #
+            with open(dataset_save+'/train_set_bt.pickle', 'rb') as f:
                 train_dataset = pickle.load(f)
             # pickleファイルを読み込む
             with open(dataset_save+'/test_set_bt.pickle', 'rb') as f:
@@ -368,7 +385,7 @@ def prep_smeardata_bt(
 
         else: #指定したフォルダ内にtrain_set_btがない場合は新たに保存しておく
             train_dataset, test_dataset = prep_btdataset(image_path, num_rbc=num_rbc, show_imagedata=show_imagedata, ssl_transform=ssl_transform)
-            with open(dataset_save+'train_set_bt.pickle', 'wb') as f:
+            with open(dataset_save+'/train_set_bt.pickle', 'wb') as f:
                 pickle.dump(train_dataset, f)
             with open(dataset_save+'/test_set_bt.pickle', 'wb') as f:
                 pickle.dump(test_dataset, f)
@@ -489,13 +506,13 @@ def clstoken_extraction(dataloader, model, device=None, f_type="mean+max", laten
 
 def get_clstoken(dataset_lst, model, device, f_type="mean+max", latent_id="encoder.blocks.2.layernorm2", batch_size=64):
     features = {} # 特徴量を辞書形式でまとめる
-    for mydatasets, n in dataset_lst:
+    for n, mydatasets in dataset_lst:
         for i, mydataset in enumerate(mydatasets):
             dataloader = prep_valid_loader(mydataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
             # BTで学習したViTモデルの読み込み
             model.to(device)
             model.eval()  # 評価モードに設定（勾配計算をオフに）
-            smear_feature = clstoken_extraction(dataloader, model, f_type=f_type, latent_id=latent_id)
+            smear_feature = clstoken_extraction(dataloader, model, device=device, f_type=f_type, latent_id=latent_id)
             features[str(n)+"_"+str(i+1)] = smear_feature.cpu() # 後の操作のためにCPUに戻す
         #print("\n")
     sorted_features = {k: features[k] for k in sorted(features)}

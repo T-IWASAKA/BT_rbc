@@ -4,15 +4,14 @@ Created on 2025-02-23
 @author: T.Iwasaka
 """
 
+import random
+
 import cv2
+import matplotlib.pyplot as plt
 import numpy as np
-
-from torch.utils.data import Dataset
-from torchvision import transforms
-
 from openslide import OpenSlide, OpenSlideError
-
 from scipy.spatial import KDTree
+from torchvision import transforms
 
 class Smear_tiff():
     def __init__(
@@ -121,3 +120,17 @@ class Smear_tiff():
                     ap(image_array[x:x+rbc_size, y:y+rbc_size])
 
         return background_lst
+    
+
+def show_get_img(total_image):
+    num = len(total_image)
+    fig = plt.figure(figsize=(4, (((num-1)//4)+1)))
+    n = 1
+    for img in random.sample(total_image, len(total_image)): # ランダムに取り出したい
+        ax = fig.add_subplot((((num-1)//4)+1), 4, n)
+        ax.imshow(img)
+        if n == 16:
+            plt.tight_layout()
+            plt.show()
+            break
+        n = n + 1

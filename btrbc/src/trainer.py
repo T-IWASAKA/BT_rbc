@@ -87,7 +87,7 @@ class Trainer:
             # backpropagation
             loss.backward()
             # 勾配クリッピング
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.config["max_norm"]) # 外部からさわれるように
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0) # 外部からさわれるように
             # パラメータ更新
             self.optimizer.step()
             total_loss += loss.item()

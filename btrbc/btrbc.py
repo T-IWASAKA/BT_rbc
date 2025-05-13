@@ -6,26 +6,28 @@ ihvit module
 
 @author: tadahaya
 """
+import pickle
+from typing import Tuple
+import yaml
+import os
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.optim.lr_scheduler import CosineAnnealingLR, SequentialLR
 import torchvision.transforms as transforms
-from typing import Tuple
-import yaml
+from transformers import get_linear_schedule_with_warmup
 
-from tqdm.auto import tqdm
-
-#from .src.models import *
+from .src.barlow import BarlowTwins
+from .src.data_handler import (
+    get_clstoken,
+    get_dr_feature,
+    prep_smeardata_bt,
+    prep_validdataset_lst,
+)
+from .src.image_aug import SSLTransform
 from .src.models.vit import VitForClassification
 from .src.trainer import Trainer
-from .src.data_handler import  prep_smeardata_bt, prep_validdataset_lst, get_clstoken, get_dr_feature
-from .image_aug import SSLTransform
-from .src.barlow import BarlowTwins
-
-from transformers import get_linear_schedule_with_warmup
-from torch.optim.lr_scheduler import CosineAnnealingLR, SequentialLR
-
-import torch_optimizer as optim_ext #250424追加
 
 class BTRBC:
     def __init__(
@@ -51,7 +53,6 @@ class BTRBC:
             self.config["config_path"] = config_path
         self.model = VitForClassification(self.config)
         self.model.load_state_dict(torch.load(model_path))
-
 
     def prep_smeardata_bt(
             self, exp_name: str=None, input_path: str=None,
@@ -84,12 +85,12 @@ class BTRBC:
             show_imagedata=True,
             dataset_save=None
             ):
-        if os.path.exists(dataset_save+'ds_dataset_lst.pickle'): #
-            with open(dataset_save+'ds_dataset_lst.pickle', 'rb') as f:
+        if os.path.exists(dataset_save+'/ds_dataset_lst.pickle'): #
+            with open(dataset_save+'/ds_dataset_lst.pickle', 'rb') as f:
                 dataset_lst = pickle.load(f)
         else:
             dataset_lst = prep_validdataset_lst(image_path, num_image=num_image, splitn=splitn, ditect_type=ditect_type, show_imagedata=show_imagedata)
-            with open(dataset_save+'ds_dataset_lst.pickle', 'wb') as f:
+            with open(dataset_save+'/ds_dataset_lst.pickle', 'wb') as f:
                 pickle.dump(dataset_lst, f)
 
         return dataset_lst 
@@ -150,7 +151,8 @@ class BTRBC:
             print(f"Accuracy: {accuracy} // Average Loss: {avg_loss}")
 
 
-    def model_vaild(self, model, dataset_lst, f_type="mean+max"):
-        sorted_features = get_clstoken(dataset_lst, model, self.config["device"], f_type=f_type, latent_id=self.latent_id, batch_size=64)
+    def model_valid(self, dataset_lst, f_type="mean+max"):
+        model_trained = self.model.backbone.net
+        sorted_features = get_clstoken(dataset_lst, model_trained, self.config["device"], f_type=f_type, latent_id=self.latent_id, batch_size=64)
         pca_feature, sample_ind = get_dr_feature(sorted_features)
         return  pca_feature, sample_ind
