@@ -123,12 +123,13 @@ class Smear_tiff():
     
 
 def show_get_img(total_image):
-    num = len(total_image)
+    num = 1000
     fig = plt.figure(figsize=(4, (((num-1)//4)+1)))
     n = 1
     for img in random.sample(total_image, len(total_image)): # ランダムに取り出したい
         ax = fig.add_subplot((((num-1)//4)+1), 4, n)
         ax.imshow(img)
+        ax.axis('off')
         if n == 16:
             plt.tight_layout()
             plt.show()

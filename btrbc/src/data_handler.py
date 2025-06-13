@@ -15,6 +15,7 @@ from collections import deque
 from typing import Tuple
 import os
 import sys
+import cv2
 
 import numpy as np
 import pandas as pd
@@ -109,9 +110,11 @@ def prep_rbcdata(tif_file, patch_size=1024, goal=10000, check_ditect=True):
     random.shuffle(loc_pairs)
 
     total_image = deque()
+    #structural_line_image = deque()
+    #blurred_image = deque()
 
     # ペアを順番に処理
-    n = 0 # errorの判定に使用
+    #n = 0 # errorの判定に使用
     with tqdm(total=goal, desc="total rbc", file=sys.stderr) as pbar:
         for loc_n, xy in enumerate(loc_pairs):
             if loc_n == len(loc_pairs) - 1:
@@ -122,8 +125,22 @@ def prep_rbcdata(tif_file, patch_size=1024, goal=10000, check_ditect=True):
             isolated_centroids, isolated_areasize = dat_smear.ditect_rbc(patch_size=patch_size, loc=(x, y), rbc_radius=60)
             if isolated_centroids is not None: # Noneを返したときはエラーなので避ける
                 rbc_lst = dat_smear.get_rbcimage(isolated_centroids, isolated_areasize, loc=(x, y))
-                total_image.extend(rbc_lst)
-                pbar.update(len(rbc_lst))
+
+                # ======= ここから書き換え ======= #
+                for rgb_array in rbc_lst:
+                    if laplacian_filter(rgb_array, threshold=3):
+                        if detect_structural_line_spike(rgb_array):
+                            #structural_line_image.extend([rgb_array])
+                            pass
+                        else:
+                            total_image.extend([rgb_array])
+                            pbar.update(1)
+                    else:
+                        #blurred_image.extend([rgb_array])
+                        pass
+
+                # ======= ここまで書き換え ======= #
+
                 if len(total_image) > goal:
                     print("The goal has been reached.")
                     if check_ditect:
@@ -135,15 +152,19 @@ def prep_rbcdata(tif_file, patch_size=1024, goal=10000, check_ditect=True):
             else:
                 dat_smear = Smear_tiff(tif_file)
                 pbar.update(0)
-                n = 1
+                #n = 1
                 continue
 
 
     total_image = list(total_image)
+    #blurred_image = list(blurred_image)
+    #structural_line_image = list(structural_line_image)
     total_image = total_image[0:goal]
 
     if check_ditect:
         show_get_img(total_image)
+        #show_get_img(structural_line_image)
+        #show_get_img(blurred_image)
 
     return total_image
 
@@ -210,7 +231,7 @@ def prep_randomdata(tif_file, patch_size=80, goal=10000, check_ditect=True):
 
 
 def prep_dataset(total_image, splitn=1):
-    if splitn == 1:
+    if splitn > 1:
         random.shuffle(total_image)
         my_datasets = [SmearDataset_RBC(i) for i in np.array_split(total_image, splitn)]
     else:
@@ -385,6 +406,8 @@ def prep_smeardata_bt(
 
         else: #指定したフォルダ内にtrain_set_btがない場合は新たに保存しておく
             train_dataset, test_dataset = prep_btdataset(image_path, num_rbc=num_rbc, show_imagedata=show_imagedata, ssl_transform=ssl_transform)
+            if not os.path.exists(dataset_save):
+                os.makedirs(dataset_save)
             with open(dataset_save+'/train_set_bt.pickle', 'wb') as f:
                 pickle.dump(train_dataset, f)
             with open(dataset_save+'/test_set_bt.pickle', 'wb') as f:
@@ -534,3 +557,39 @@ def get_dr_feature(sorted_features):
     sample_ind = df.index
 
     return pca_feature, sample_ind
+
+
+# ===================================================== #
+def laplacian_filter(rgb_array, threshold=10):
+    # RGB → グレースケール
+    gray = cv2.cvtColor(rgb_array, cv2.COLOR_RGB2GRAY)
+
+    # ラプラシアンフィルタ
+    laplacian = cv2.Laplacian(gray, cv2.CV_64F)
+
+    # シャープネス（ピントの指標）
+    sharpness = laplacian.var()
+
+    return sharpness > threshold
+
+def detect_structural_line_spike(img_rgb, diff_thresh=5, window_ratio=0.2):
+    gray = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2GRAY)
+    h, w = gray.shape
+
+    # プロファイル取得
+    col_profile = np.mean(gray, axis=0)
+    row_profile = np.mean(gray, axis=1)
+
+    col_diff = np.abs(np.diff(col_profile))
+    row_diff = np.abs(np.diff(row_profile))
+
+    # スパイクが画像の中央付近に集中してるかをチェック
+    col_center = w // 2
+    row_center = h // 2
+    win_c = int(w * window_ratio)
+    win_r = int(h * window_ratio)
+
+    vertical_spike = np.max(col_diff[col_center - win_c: col_center + win_c]) > diff_thresh
+    horizontal_spike = np.max(row_diff[row_center - win_r: row_center + win_r]) > diff_thresh
+
+    return vertical_spike or horizontal_spike

@@ -80,7 +80,7 @@ def load_experiments(
     # load model
     model = VitForClassification(config)
     cpfile = os.path.join(outdir, checkpoint_name)
-    model.load_state_dict(torch.load(cpfile)) # checkpointを読み込んでから
+    model.load_state_dict(torch.load(cpfile, weights_only=True)) # checkpointを読み込んでから # 250522 weights_only=Trueを追加
     return config, model, train_losses, test_losses, accuracies
 
 
